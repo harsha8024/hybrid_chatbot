@@ -96,7 +96,7 @@ def generative_bot(user_input):
     # 6. Percent of spending on a category
     # 6. Percent of spending on a category
     elif "percent" in input_lower:
-        # Try multiple flexible patterns
+    # Try multiple flexible patterns
         patterns = [
             r"percent of.*spending.*on (.+)",
             r"percent.*on (.+)",
@@ -126,6 +126,7 @@ def generative_bot(user_input):
                     return f"I couldn't find '{category}'. Did you mean **{suggestion}**?"
 
         return "I couldn't identify the category. Try asking like: 'What percent of my spending was on Rent?'"
+
 
 
 
