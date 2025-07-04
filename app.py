@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 from chatbot.router import hybrid_chatbot
 
 app = Flask(__name__)
+app.register_blueprint(hybrid_chatbot)
 
 @app.route('/')
 def index():

@@ -1,18 +1,20 @@
-from chatbot.rule_based import rule_based_bot
-from chatbot.retrieval_based import retrieval_bot
+from flask import Blueprint, request, jsonify
 from chatbot.generative import generative_bot
+from chatbot.retrieval_based import retrieval_bot
 
-def hybrid_chatbot(user_input):
-    # 1. Rule-based
-    response = rule_based_bot(user_input)
-    if response:
-        return response
+hybrid_chatbot = Blueprint("hybrid_chatbot", __name__)
 
-    # 2. Retrieval-based
-    response = retrieval_bot(user_input)
-    if response:
-        return response
+@hybrid_chatbot.route("/chat", methods=["POST"])
+def chat():
+    user_msg = request.json.get("message")
 
-    # 3. Generative (fallback)
-    return generative_bot(user_input)
+    # retrieval first
+    answer = retrieval_bot(user_msg)
 
+    if not answer:
+        answer = generative_bot(user_msg)
+
+    if not answer:
+        answer = "Sorry, I couldn't understand that."
+
+    return jsonify({"response": answer})
