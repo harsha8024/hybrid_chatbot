@@ -29,6 +29,7 @@ def get_closest_category(user_category):
 # Generative bot logic
 def generative_bot(user_input):
     input_lower = user_input.lower()
+    
 
     # 1. Spend the most
     if "spend the most" in input_lower:
@@ -146,6 +147,100 @@ def generative_bot(user_input):
             else:
                 suggestion = get_closest_category(category)
                 return f"I couldn't find '{category}'. Did you mean **{suggestion}**?"
+    
+    # 9. Expense Summary Insight
+    elif "summary" in input_lower or "insight" in input_lower or "overview" in input_lower:
+        df["Total"] = df[months].sum(axis=1)
+        top_3 = df.sort_values("Total", ascending=False).head(3)
 
-    # 8. Fallback
+        monthly_totals = df[months].sum()
+        highest_month = monthly_totals.idxmax()
+        lowest_month = monthly_totals.idxmin()
+
+        consistent = df.set_index("Category")[months].std(axis=1).sort_values().head(1).index[0]
+        variable = df.set_index("Category")[months].std(axis=1).sort_values(ascending=False).head(1).index[0]
+
+        return (
+            f" Here's your spending summary:\n\n"
+            f"🔹 Top 3 categories: {', '.join(top_3['Category'].tolist())}\n"
+            f"🔹 Highest spend month: {highest_month}\n"
+            f"🔹 Lowest spend month: {lowest_month}\n"
+            f"🔹 Most consistent category: {consistent}\n"
+            f"🔹 Most variable category: {variable}"
+    )
+    # 10. Category with steepest increase (month-over-month)
+    elif "steepest increase" in input_lower:
+        month_diffs = df[months].diff(axis=1)
+        max_increases = month_diffs.max(axis=1)
+
+        top_index = max_increases.idxmax()
+        top_category = df.loc[top_index, "Category"]
+        top_value = max_increases[top_index]
+
+        top_diff_row = month_diffs.loc[top_index]
+        max_month = top_diff_row.idxmax()
+        prev_month_idx = months.index(max_month) - 1
+        prev_month = months[prev_month_idx] if prev_month_idx >= 0 else "previous month"
+
+        return f"The category with the steepest single-month increase is **{top_category}**, which rose by ₹{top_value:.2f} from {prev_month} to {max_month}."
+
+
+
+    
+    # 11. Trend over time for a category
+    elif "trend" in input_lower or "how has" in input_lower or "change" in input_lower:
+        match = re.search(r"(?:trend for|how has|show.*trend for|how is|how did)\s+(.*?)\??(?:\s+over.*)?$", input_lower)
+        if match:
+            user_input_cat = match.group(1).strip()
+            category = user_input_cat.title()
+            row = df[df["Category"].str.lower() == category.lower()]
+
+            if not row.empty:
+                import numpy as np
+                from scipy.stats import linregress
+
+                y = row[months].values.flatten()
+                x = np.arange(len(months))
+                slope, _, _, _, _ = linregress(x, y)
+
+                if slope > 50:
+                    trend = "strongly increasing"
+                elif slope > 0:
+                    trend = "increasing"
+                elif slope < -50:
+                    trend = "strongly decreasing"
+                elif slope < 0:
+                    trend = "decreasing"
+                else:
+                    trend = "stable"
+
+                return f"The trend for {category} is {trend} over the months."
+            else:
+                suggestion = get_closest_category(category)
+                return f"I couldn't find '{category}'. Did you mean **{suggestion}**?"
+
+
+            
+    # 12. Anomalies in spending (z-score based)
+    elif "anomalies" in input_lower or "unusual spending" in input_lower:
+        import numpy as np
+        anomalies = []
+        for idx, row in df.iterrows():
+            values = row[months].values
+            mean = np.mean(values)
+            std = np.std(values)
+            z_scores = (values - mean) / std if std > 0 else np.zeros_like(values)
+            spike_months = [months[i] for i, z in enumerate(z_scores) if abs(z) > 2]
+            if spike_months:
+                anomalies.append(f"{row['Category']}: {', '.join(spike_months)}")
+        if anomalies:
+            return "Detected unusual spending in:\n" + "\n".join(anomalies)
+        else:
+            return "No significant anomalies found in spending patterns."
+
+
+
+
+
+    # 13. Fallback
     return "I'm not sure how to answer that yet. Try asking about totals, comparisons, averages, or budgets."
