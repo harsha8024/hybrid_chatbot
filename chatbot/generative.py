@@ -23,8 +23,18 @@ available_categories = df["Category"].unique().tolist()
 
 # Fuzzy match helper
 def get_closest_category(user_category):
-    match, score = process.extractOne(user_category, available_categories, score_cutoff=60)
-    return match if match else None
+    result = process.extractOne(user_category, available_categories, score_cutoff=60)
+    if result is None:
+        return None
+    match = result[0]
+    return match
+
+def extract_category_for_trend(user_input):
+    match = re.search(r"(?:trend\s+for|how\s+has|how\s+did|change\s+in|evolve\s+in|pattern\s+of|progress\s+of)\s+([a-zA-Z\s]+)", user_input, re.IGNORECASE)
+    if match:
+        return match.group(1).strip().title()
+    return None
+
 
 # Generative bot logic
 def generative_bot(user_input):
@@ -94,8 +104,7 @@ def generative_bot(user_input):
         return "I couldn't identify the month. Try asking like: 'Total expenditure in March'."
 
     # 6. Percent of spending on a category
-    # 6. Percent of spending on a category
-    # 6. Percent of spending on a category
+    
     elif "percent" in input_lower:
     # Try multiple flexible patterns
         patterns = [
@@ -148,7 +157,7 @@ def generative_bot(user_input):
                 suggestion = get_closest_category(category)
                 return f"I couldn't find '{category}'. Did you mean **{suggestion}**?"
     
-    # 9. Expense Summary Insight
+    # 8. Expense Summary Insight
     elif "summary" in input_lower or "insight" in input_lower or "overview" in input_lower:
         df["Total"] = df[months].sum(axis=1)
         top_3 = df.sort_values("Total", ascending=False).head(3)
@@ -168,7 +177,7 @@ def generative_bot(user_input):
             f"🔹 Most consistent category: {consistent}\n"
             f"🔹 Most variable category: {variable}"
     )
-    # 10. Category with steepest increase (month-over-month)
+    # 9. Category with steepest increase (month-over-month)
     elif "steepest increase" in input_lower:
         month_diffs = df[months].diff(axis=1)
         max_increases = month_diffs.max(axis=1)
@@ -187,14 +196,12 @@ def generative_bot(user_input):
 
 
     
-    # 11. Trend over time for a category
-    elif "trend" in input_lower or "how has" in input_lower or "change" in input_lower:
-        match = re.search(r"(?:trend for|how has|show.*trend for|how is|how did)\s+(.*?)\??(?:\s+over.*)?$", input_lower)
-        if match:
-            user_input_cat = match.group(1).strip()
-            category = user_input_cat.title()
+    # 10. Trend over time for a category
+        
+    elif any(keyword in input_lower for keyword in ["trend", "how has", "how did", "change", "evolve", "pattern", "progress"]):
+        category = extract_category_for_trend(user_input)
+        if category:
             row = df[df["Category"].str.lower() == category.lower()]
-
             if not row.empty:
                 import numpy as np
                 from scipy.stats import linregress
@@ -214,14 +221,20 @@ def generative_bot(user_input):
                 else:
                     trend = "stable"
 
-                return f"The trend for {category} is {trend} over the months."
+                return f"The trend for {category} is **{trend}** over the months."
             else:
                 suggestion = get_closest_category(category)
-                return f"I couldn't find '{category}'. Did you mean **{suggestion}**?"
+                if suggestion:
+                    return f"I couldn't find '{category}'. Did you mean **{suggestion}**?"
+                else:
+                    return f"I couldn't find '{category}'. Available categories: {', '.join(available_categories)}"
+        else:
+            return "I couldn't identify the category. Try asking like: 'What is the trend for Food?'"
+
 
 
             
-    # 12. Anomalies in spending (z-score based)
+    # 11. Anomalies in spending (z-score based)
     elif "anomalies" in input_lower or "unusual spending" in input_lower:
         import numpy as np
         anomalies = []
@@ -242,5 +255,5 @@ def generative_bot(user_input):
 
 
 
-    # 13. Fallback
+    # 12. Fallback
     return "I'm not sure how to answer that yet. Try asking about totals, comparisons, averages, or budgets."

@@ -1,6 +1,6 @@
 import requests
 
-msg = "Give me a summary of my expenses. "
+msg = "Where did I overspend?"
 response = requests.post("http://127.0.0.1:5000/chat", json={"message": msg})
 
 print("Status code:", response.status_code)

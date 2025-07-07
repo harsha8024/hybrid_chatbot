@@ -12,7 +12,7 @@ def chat():
     # Keywords to trigger generative bot
     generative_keywords = [
         "percent", "average", "compare", "total",
-        "overspend", "budget", "most", "highest", "expenditure", "spending"
+        "overspend", "budget", "most", "highest", "expenditure", "spending","trend"
     ]
 
     # Check if user message matches any keyword
