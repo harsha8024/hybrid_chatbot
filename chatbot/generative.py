@@ -1,6 +1,15 @@
 import pandas as pd
 import re
 from rapidfuzz import process
+import requests
+
+
+chat_history = []
+memory = {
+    "intent": None,
+    "category": None
+}
+
 
 # Load Excel and setup
 excel_path = "data/samplepnl.xlsx"
@@ -15,7 +24,7 @@ df = df[df["Category"].notna()]  # remove rows with missing category
 months = [col for col in df.columns if re.match(r"^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}$", col)]
 
 if not months:
-    raise ValueError(f"❌ No month columns detected. Available columns: {list(df.columns)}")
+    raise ValueError(f"No month columns detected. Available columns: {list(df.columns)}")
 
 # Month lookup and category list
 month_lookup = {m.lower(): m for m in months}
@@ -36,10 +45,104 @@ def extract_category_for_trend(user_input):
     return None
 
 
+
+def generate_spreadsheet_summary(df, months):
+    summary_lines = []
+    for _, row in df.iterrows():
+        category = row["Category"]
+        monthly_values = row[months].tolist()
+        monthly_summary = ", ".join(f"{month}: ₹{val:.2f}" for month, val in zip(months, monthly_values))
+        summary_lines.append(f"{category} → {monthly_summary}")
+    
+    return "\n".join(summary_lines)
+
+
+def call_llama3(user_input, df=None, months=None):
+    context = ""
+    if df is not None and months is not None:
+        context = generate_spreadsheet_summary(df, months)
+        # print(context)
+    
+    prompt = (
+    "You are a helpful financial assistant.\n"
+    "The user has provided a monthly profit and loss spreadsheet showing spending in various categories.\n"
+    "Use the spreadsheet data to directly answer user questions like:\n"
+    "- Which categories they spent the most or least on\n"
+    "- Where they can cut costs\n"
+    "- Trends or changes in spending\n"
+    "- Budget or category comparisons\n\n"
+    f"Spreadsheet:\n{context}\n\n"
+    f"User Query:\n{user_input}\n\n"
+    "Only use the spreadsheet values for your answer. Be specific, helpful, and brief.\n"
+    "Assistant:"
+)
+    # print("=== PROMPT SENT TO LLaMA ===")
+    # print(prompt)
+
+
+    response = requests.post(
+        "http://localhost:11434/api/generate",
+        json={
+            "model": "llama3",
+            "prompt": prompt,
+            "stream": False
+        }
+    )
+    
+    if response.status_code == 200:
+        return response.json()["response"].strip()
+    else:
+        return "Error communicating with the LLaMA model."
+
+def build_prompt_from_history(history, user_input):
+    history.append(f"User: {user_input}")
+    prompt = "\n".join(history) + "\nAssistant:"
+    return prompt
+
+
+
+
 # Generative bot logic
-def generative_bot(user_input):
+def generative_bot(user_input,use_llm=True):
     input_lower = user_input.lower()
     
+    global chat_history
+
+    
+    
+
+
+    # 10B. Clarification handling (e.g., "yes, I meant X")
+    if input_lower.startswith("yes") or "i meant" in input_lower:
+    # Check if previous intent was a trend request and a category was stored
+        if memory["intent"] == "trend" and memory["category"]:
+            category = memory["category"]
+            row = df[df["Category"].str.lower() == category.lower()]
+            if not row.empty:
+                import numpy as np
+                from scipy.stats import linregress
+
+                y = row[months].values.flatten()
+                x = np.arange(len(months))
+                slope, _, _, _, _ = linregress(x, y)
+
+                if slope > 50:
+                    trend = "strongly increasing"
+                elif slope > 0:
+                    trend = "increasing"
+                elif slope < -50:
+                    trend = "strongly decreasing"
+                elif slope < 0:
+                    trend = "decreasing"
+                else:
+                    trend = "stable"
+
+                return f"Thanks for confirming. The trend for {category} is **{trend}** over the months."
+            else:
+                return f"Sorry, I still couldn’t find '{category}'."
+        else:
+            return "Can you clarify what you're referring to?"
+
 
     # 1. Spend the most
     if "spend the most" in input_lower:
@@ -194,10 +297,11 @@ def generative_bot(user_input):
         return f"The category with the steepest single-month increase is **{top_category}**, which rose by ₹{top_value:.2f} from {prev_month} to {max_month}."
 
 
-
+    
     
     # 10. Trend over time for a category
         
+       
     elif any(keyword in input_lower for keyword in ["trend", "how has", "how did", "change", "evolve", "pattern", "progress"]):
         category = extract_category_for_trend(user_input)
         if category:
@@ -221,15 +325,27 @@ def generative_bot(user_input):
                 else:
                     trend = "stable"
 
+                # Save memory
+                memory["intent"] = "trend"
+                memory["category"] = category
+
+
                 return f"The trend for {category} is **{trend}** over the months."
             else:
                 suggestion = get_closest_category(category)
                 if suggestion:
+                    # Save memory for confirmation
+                    memory["intent"] = "trend"
+                    memory["category"] = suggestion
                     return f"I couldn't find '{category}'. Did you mean **{suggestion}**?"
                 else:
                     return f"I couldn't find '{category}'. Available categories: {', '.join(available_categories)}"
         else:
             return "I couldn't identify the category. Try asking like: 'What is the trend for Food?'"
+
+    
+
+
 
 
 
@@ -255,5 +371,17 @@ def generative_bot(user_input):
 
 
 
-    # 12. Fallback
-    return "I'm not sure how to answer that yet. Try asking about totals, comparisons, averages, or budgets."
+    
+    # 12. Fallback – Pass to LLaMA 3 with spreadsheet
+    # 12. Fallback – Pass to LLaMA 3 with spreadsheet
+    if use_llm:
+        llama_response = call_llama3(user_input, df, months)
+        chat_history.append(f"User: {user_input}")
+        chat_history.append(f"Assistant: {llama_response}")
+        return f"(AI response)\n{llama_response}"
+    else:
+        return "I'm not sure how to answer that yet. Try asking about totals, comparisons, averages, or budgets."
+
+
+
+

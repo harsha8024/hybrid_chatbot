@@ -12,7 +12,7 @@ def index():
 @app.route('/chat', methods=['POST'])
 def chat():
     user_input = request.json['message']
-    response = generative_bot(user_input)
+    response = generative_bot(user_input,use_llm=True)
     return jsonify({"response": response})
 
 if __name__ == "__main__":
