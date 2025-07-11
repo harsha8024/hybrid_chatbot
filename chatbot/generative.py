@@ -12,31 +12,11 @@ memory = {
 
 
 # Load Excel and setup
-excel_path = "data/samplepnl.xlsx"
-df = pd.read_excel(excel_path, skiprows=3)
+# excel_path = "data/samplepnl.xlsx"
+# df = pd.read_excel(excel_path, skiprows=3)
 
 # Clean up columns
-df.columns = df.columns.str.strip()
-df.columns.values[0] = "Category"
-df = df[df["Category"].notna()]  # remove rows with missing category
 
-# Dynamically detect month columns (e.g., "Jan 2025", etc.)
-months = [col for col in df.columns if re.match(r"^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}$", col)]
-
-if not months:
-    raise ValueError(f"No month columns detected. Available columns: {list(df.columns)}")
-
-# Month lookup and category list
-month_lookup = {m.lower(): m for m in months}
-available_categories = df["Category"].unique().tolist()
-
-# Fuzzy match helper
-def get_closest_category(user_category):
-    result = process.extractOne(user_category, available_categories, score_cutoff=60)
-    if result is None:
-        return None
-    match = result[0]
-    return match
 
 def extract_category_for_trend(user_input):
     match = re.search(r"(?:trend\s+for|how\s+has|how\s+did|change\s+in|evolve\s+in|pattern\s+of|progress\s+of)\s+([a-zA-Z\s]+)", user_input, re.IGNORECASE)
@@ -103,8 +83,38 @@ def build_prompt_from_history(history, user_input):
 
 
 # Generative bot logic
-def generative_bot(user_input,use_llm=True):
+def generative_bot(user_input, df, use_llm=True):
+
+    print(f"✅ Entered generative_bot() with df shape: {df.shape}", flush=True)
+    df.columns = df.columns.str.strip()
+    df.columns.values[0] = "Category"
+    df = df[df["Category"].notna()]  # remove rows with missing category
+
+    # Dynamically detect month columns (e.g., "Jan 2025", etc.)
+    months = [col for col in df.columns if re.match(r"^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}$", col)]
+
+    if not months:
+        raise ValueError(f"No month columns detected. Available columns: {list(df.columns)}")
+
+    # Month lookup and category list
+    month_lookup = {m.lower(): m for m in months}
+    available_categories = df["Category"].unique().tolist()
+
+    # Fuzzy match helper
+    def get_closest_category(user_category):
+        result = process.extractOne(user_category, available_categories, score_cutoff=60)
+        if result is None:
+            return None
+        match = result[0]
+        return match
+
     input_lower = user_input.lower()
+    
+    if df is not None and months is None:
+        months = [col for col in df.columns if re.match(r"^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}$", col)]
+        if not months:
+            return "No valid month columns found in the spreadsheet."
+
     
     global chat_history
 

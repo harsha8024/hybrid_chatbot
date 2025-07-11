@@ -1,8 +1,12 @@
 import requests
 
-messages = ["What is the trend for Software&Apps?","yes"]
+messages = ["How much did I spend on Advertising&marketing?"]
 for msg in messages:
-    response = requests.post("http://127.0.0.1:5000/chat", json={"message": msg})
+    print("🧪 Sending request to Flask server")
+    response = requests.post(
+        "http://127.0.0.1:5000/chat",
+        json={"message": msg, "company_id": "1"}  # or "2" for second company
+    )
 
     print("Status code:", response.status_code)
     print("Raw response:", repr(response.text))  # show raw text even if empty
