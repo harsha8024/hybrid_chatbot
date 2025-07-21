@@ -1,6 +1,10 @@
 import pandas as pd
 import re
+import os
+import fuzzywuzzy
+import openpyxl
 from rapidfuzz import process
+from fuzzywuzzy import process
 import requests
 
 
@@ -55,6 +59,7 @@ def call_llama3(user_input, df=None, months=None):
     f"User Query:\n{user_input}\n\n"
     "Only use the spreadsheet values for your answer. Be specific, helpful, and brief.\n"
     "Assistant:"
+    "Do not add summaries or totals unless the user specifically requests them."
 )
     # print("=== PROMPT SENT TO LLaMA ===")
     # print(prompt)
@@ -79,26 +84,149 @@ def build_prompt_from_history(history, user_input):
     prompt = "\n".join(history) + "\nAssistant:"
     return prompt
 
+def find_file_with_category(company_id, category):
+    folder_path = os.path.join(str(company_id))
+
+    if not os.path.exists(folder_path):
+        return None, None
+
+    for filename in os.listdir(folder_path):
+        if filename.endswith(".xlsx") or filename.endswith(".xls"):
+            file_path = os.path.join(folder_path, filename)
+            try:
+                df = pd.read_excel(file_path, engine='openpyxl')
+                df.columns = df.columns.str.strip()
+                if category in df[df.columns[0]].values:
+                    return file_path, df
+            except Exception:
+                continue
+    return None, None
+
+def extract_monthly_values(df, category):
+    try:
+        months = [col for col in df.columns if re.match(r"^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}$", col)]
+        category_row = df[df[df.columns[0]] == category]
+        if category_row.empty:
+            return None
+        return category_row[months].to_dict(orient='records')[0]
+    except Exception:
+        return None
+    
+def load_spreadsheet_with_category_header(file_path):
+    wb = openpyxl.load_workbook(file_path)
+    ws = wb.active
+    for idx, row in enumerate(ws.iter_rows(values_only=True)):
+        if row and "Category" in row:
+            return pd.read_excel(file_path, skiprows=idx)
+    raise ValueError(f"No row with 'Category' found in: {file_path}")
 
 
 
 # Generative bot logic
-def generative_bot(user_input, df, use_llm=True):
+def generative_bot(user_input, company_id, use_llm=True):
 
-    print(f"✅ Entered generative_bot() with df shape: {df.shape}", flush=True)
-    df.columns = df.columns.str.strip()
-    df.columns.values[0] = "Category"
-    df = df[df["Category"].notna()]  # remove rows with missing category
+    print(f"✅ Entered generative_bot() for company_id={company_id}", flush=True)
 
-    # Dynamically detect month columns (e.g., "Jan 2025", etc.)
-    months = [col for col in df.columns if re.match(r"^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}$", col)]
+    # Determine base folder
+    base_folder = f"data/{company_id}"
+    if not os.path.isdir(base_folder):
+        return f"Company ID '{company_id}' has no spreadsheet folder."
 
-    if not months:
-        raise ValueError(f"No month columns detected. Available columns: {list(df.columns)}")
+    # Search for file containing the relevant category
+    best_match = None
+    best_score = 0
+    matched_df = None
+    matched_filename = None
+    matched_category = None
 
-    # Month lookup and category list
-    month_lookup = {m.lower(): m for m in months}
-    available_categories = df["Category"].unique().tolist()
+    category_required = any(keyword in user_input.lower() for keyword in [
+    " on ", "spend on", "expenditure on", "average", "trend", "percent", "versus", "vs", "compare"
+])
+
+# Loop through all files only if category is required
+    if category_required:
+        best_score = 0
+        best_match = None
+        matched_df = None
+        matched_filename = None
+        matched_category = None
+
+        for file in os.listdir(base_folder):
+            if file.endswith(".xlsx"):
+                filepath = os.path.join(base_folder, file)
+                try:
+                    df = pd.read_excel(filepath, skiprows=3)
+                    df.columns = df.columns.str.strip()
+                    if df.columns.values[0].lower() != "category":
+                        df.columns.values[0] = "Category"
+                    df = df[df["Category"].notna()]
+                    df["Category"] = df["Category"].astype(str).str.strip().str.lower()
+                    category_map = {cat.lower(): cat for cat in df["Category"].unique()}
+
+                    categories = df["Category"].tolist()
+                    user_input_lower = user_input.lower().strip()
+
+                    # Try to extract a possible category from the user query
+                    cat_match = re.search(r"(?:on|about|for|regarding)\s+([a-zA-Z ]+)", user_input_lower)
+                    likely_cat = cat_match.group(1).strip().lower() if cat_match else user_input_lower
+
+                    # Try direct substring match first
+                    possible_categories = [cat for cat in categories if cat in likely_cat]
+                    if possible_categories:
+                        match_cat = possible_categories[0]
+                        score = 100
+                    else:
+                        match = process.extractOne(likely_cat, categories)
+                        if match:
+                            match_cat, score = match
+                        else:
+                            match_cat, score = None, 0
+
+                    print(f"🔍 Checked {file}: Matched '{likely_cat}' to '{match_cat}' with score {score}", flush=True)
+
+                    if score > best_score and score >= 60:
+                        best_score = score
+                        best_match = match_cat
+                        matched_df = df
+                        matched_filename = file
+                        matched_category = match_cat
+
+                except Exception as e:
+                    print(f"❌ Error reading {file}: {e}", flush=True)
+
+        # Final check
+        if matched_df is None:
+            return f"No spreadsheet in company {company_id} contains a category matching your query."
+
+        df = matched_df
+        print(f"✅ Best match found: '{matched_category}' in file: {matched_filename}", flush=True)
+    else:
+        # No specific category needed — just use the first available .xlsx
+        for file in os.listdir(base_folder):
+            if file.endswith(".xlsx"):
+                filepath = os.path.join(base_folder, file)
+                try:
+                    df = pd.read_excel(filepath, skiprows=3)
+                    df.columns = df.columns.str.strip()
+                    if df.columns.values[0].lower() != "category":
+                        df.columns.values[0] = "Category"
+                    df = df[df["Category"].notna()]
+                    df["Category"] = df["Category"].astype(str).str.strip().str.lower()
+                    category_map = {cat.lower(): cat for cat in df["Category"].unique()}
+                    matched_df = df
+                    matched_filename = file
+                    break
+                except Exception as e:
+                    print(f"❌ Error reading {file}: {e}", flush=True)
+
+        if matched_df is None:
+            return f"No valid spreadsheets found for company {company_id}."
+
+        df = matched_df
+        print(f"✅ Defaulted to file: {matched_filename}", flush=True)
+    
+
+    
 
     # Fuzzy match helper
     def get_closest_category(user_category):
@@ -108,17 +236,16 @@ def generative_bot(user_input, df, use_llm=True):
         match = result[0]
         return match
 
+    # Detect month columns
+    months = [col for col in df.columns if re.match(r"^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}$", col)]
+    if not months:
+        return "No valid month columns found in the spreadsheet."
+
     input_lower = user_input.lower()
-    
-    if df is not None and months is None:
-        months = [col for col in df.columns if re.match(r"^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}$", col)]
-        if not months:
-            return "No valid month columns found in the spreadsheet."
+    month_lookup = {m.lower(): m for m in months}
+    available_categories = df["Category"].unique().tolist()
 
-    
     global chat_history
-
-    
     
 
 
@@ -150,6 +277,13 @@ def generative_bot(user_input, df, use_llm=True):
                 return f"Thanks for confirming. The trend for {category} is **{trend}** over the months."
             else:
                 return f"Sorry, I still couldn’t find '{category}'."
+        elif memory["intent"] == "average" and memory["category"]:
+            row = df[df["Category"].str.lower() == memory["category"].lower()]
+            if not row.empty:
+                avg = row[months].values.flatten().mean()
+                return f"Thanks for confirming. The average monthly expenditure on {memory['category']} is ₹{avg:.2f}"
+            else:
+                return f"Sorry, I still couldn’t find '{memory['category']}'."
         else:
             return "Can you clarify what you're referring to?"
 
@@ -167,15 +301,55 @@ def generative_bot(user_input, df, use_llm=True):
         top_month = monthly_totals.idxmax()
         top_amount = monthly_totals.max()
         return f"Your expenses were highest in {top_month}: ₹{top_amount:.2f}"
+    
+
+    elif any(kw in input_lower for kw in ["total spent", "how much did i spend", "total expenditure on"]):
+        if matched_category is None:
+            return "I couldn't identify the category you're referring to. Try asking like: 'How much did I spend on Services?'"
+
+        # Map to original formatting
+        actual_category = category_map.get(matched_category.lower().strip(), matched_category)
+
+        total_column_name = "Total"
+        try:
+            total_value = df.loc[df["Category"] == actual_category, total_column_name].values[0]
+        except IndexError:
+            total_value = None
+
+        if total_value is not None:
+            print(f"✅ Using coded total response for category: {actual_category}", flush=True)
+            return (
+                f"According to the spreadsheet, you spent:\n\n"
+                + "\n".join(
+                    [f"* {month}: ₹{df.loc[df['Category'] == actual_category, month].values[0]:.2f}"
+                    for month in months if month in df.columns]
+                )
+                + f"\n\nIn total, you spent ₹{total_value:.2f} on {actual_category}."
+            )
+        else:
+            return f"Sorry, no total spending found for {actual_category} in the spreadsheet."
+
+        
+    elif "spend in" in input_lower or "spent in" in input_lower:
+        for m in month_lookup:
+            if m in input_lower:
+                total = df[month_lookup[m]].sum()
+                return f"You spent ₹{total:.2f} in {month_lookup[m]}."
+        return "I couldn't identify the month. Try asking like: 'How much did I spend in March?'"
+
+
 
     # 3. Average monthly expenditure on a category
     elif "average monthly expenditure" in input_lower:
+        import string
         match = re.search(r"average monthly expenditure on (.+)", input_lower)
         if match:
-            user_category = match.group(1).strip().title()
+            user_category = match.group(1).strip().rstrip(string.punctuation).title()
             row = df[df["Category"].str.lower() == user_category.lower()]
             if not row.empty:
                 avg = row[months].values.flatten().mean()
+                memory["intent"] = "average"
+                memory["category"] = user_category
                 return f"The average monthly expenditure on {user_category} is ₹{avg:.2f}"
             else:
                 suggestion = get_closest_category(user_category)

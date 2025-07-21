@@ -1,6 +1,6 @@
 import requests
 
-messages = ["How much did I spend on Advertising&marketing?"]
+messages = ["How much did I spend on Wise?"]
 for msg in messages:
     print("🧪 Sending request to Flask server")
     response = requests.post(
