@@ -1,11 +1,14 @@
 import requests
 
-messages = ["How much did I spend on Wise?"]
+# messages = ["Hey, hope you're having a good day. I'm preparing for a meeting and I'm a bit swamped. I was hoping you could help me figure out two things. First, can you give me an expense summary, and also I need to know the percent of spending on Software & apps and give me reasons for the trend."]
+# messages = ["Analyse my transaction month on month."]
+messages=["How does the structure and magnitude of liabilities (payables, loans) affect the business’s financial stability and credit risk? "]
+
 for msg in messages:
     print("🧪 Sending request to Flask server")
     response = requests.post(
         "http://127.0.0.1:5000/chat",
-        json={"message": msg, "company_id": "1"}  # or "2" for second company
+        json={"user_input": msg, "company_id": 3}  # or "2" for second company
     )
 
     print("Status code:", response.status_code)
