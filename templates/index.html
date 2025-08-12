@@ -1,1 +1,83 @@
- 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Financial Chatbot</title>
+    <style>
+        body { font-family: sans-serif; margin: auto; padding: 20px; }
+        #chatbox { border: 1px solid #ccc; padding: 10px; height: 600px;width: auto; overflow-y: scroll; margin-bottom: 10px; font-size: 30px;}
+        .user-message { text-align: right; color: blue; }
+        .bot-message { text-align: left; color: green; }
+        #userInput { width: 70%; padding: 8px; }
+        /* Style for the new Company ID input */
+        #companyIdInput { width: 15%; padding: 8px; margin-right: 5px; } 
+        button { padding: 8px; }
+    </style>
+</head>
+<body>
+    <h1>Financial Chatbot</h1>
+    <div id="chatbox"></div>
+    
+    <input type="text" id="companyIdInput" placeholder="Company ID">
+
+    <!-- <input type="text" id="userInput" placeholder="Ask a question..." onkeydown="if(event.key==='Enter'){sendMessage()}"> -->
+    <textarea id="userInput" rows="5" placeholder="Ask a question..." onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault(); sendMessage();}"></textarea>
+    <button onclick="sendMessage()">Send</button>
+
+    <script>
+        const chatbox = document.getElementById('chatbox');
+        const userInput = document.getElementById('userInput');
+        // Get the new input field
+        const companyIdInput = document.getElementById('companyIdInput');
+        
+        const HISTORY_KEY = 'chatbot_conversation_history';
+        let conversationHistory = JSON.parse(localStorage.getItem(HISTORY_KEY)) || [];
+        
+        function renderHistory() {
+            chatbox.innerHTML = '';
+            conversationHistory.forEach(msg => {
+                const messageElement = document.createElement('div');
+                messageElement.classList.add(msg.role === 'user' ? 'user-message' : 'bot-message');
+                messageElement.innerText = msg.content;
+                chatbox.appendChild(messageElement);
+            });
+            chatbox.scrollTop = chatbox.scrollHeight;
+        }
+
+        async function sendMessage() {
+            const userMessage = userInput.value;
+            // Get the company_id from the new input field
+            const companyId = companyIdInput.value;
+
+            if (!userMessage || !companyId) {
+                alert("Please enter both a question and a Company ID.");
+                return;
+            }
+
+            conversationHistory.push({ role: 'user', content: userMessage });
+            renderHistory();
+            userInput.value = '';
+
+            // Send the dynamic companyId to the backend
+            const response = await fetch('http://127.0.0.1:5000/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    user_input: userMessage,
+                    company_id: companyId, // Use the value from the input
+                    history: conversationHistory
+                })
+            });
+
+            const data = await response.json();
+            const botMessage = data.response;
+
+            conversationHistory.push({ role: 'assistant', content: botMessage });
+            renderHistory();
+            localStorage.setItem(HISTORY_KEY, JSON.stringify(conversationHistory));
+        }
+
+        renderHistory();
+    </script>
+</body>
+</html>

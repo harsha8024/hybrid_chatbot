@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 from chatbot.generative import generative_bot,analyze_transaction_csv, extract_core_questions
 import logging
 import os
@@ -7,6 +7,7 @@ from schema_utils import get_db_schema
 from db_utils import get_all_categories, fetch_spending_for_category
 from dotenv import load_dotenv
 from chatbot.langchain_agent import answer_from_db_with_langchain
+from flask_cors import CORS
 
 # Load environment variables
 load_dotenv()
@@ -19,6 +20,7 @@ DB_PASS = os.getenv("DB_PASS")
 logging.basicConfig(level=logging.INFO)
 
 app = Flask(__name__)
+CORS(app)
 swagger = Swagger(app)
 
 # --- ADDED: Function to format the database response ---
@@ -72,7 +74,7 @@ def extract_category_from_input(user_input, known_categories):
 
 @app.route('/')
 def index():
-    return "Hybrid Chatbot (DEBUG MODE) is running!"
+    return render_template('index.html')
 
 
 @app.route('/chat', methods=['POST'])

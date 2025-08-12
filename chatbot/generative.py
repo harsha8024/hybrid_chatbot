@@ -181,7 +181,7 @@ def generate_spreadsheet_summary(df, months):
 #     return raw_sql.strip()
 
 
-def call_llama3(user_input, df=None, months=None):
+def call_llama3(user_input, df=None, months=None, history=None):
 
     
     # try:
@@ -195,25 +195,40 @@ def call_llama3(user_input, df=None, months=None):
     # except Exception as e:
     #     return f"LLM Call Error: {str(e)}"
 
+    if history is None:
+        history = []
+
+    # Build a formatted history string for the prompt
+    formatted_history = "\n".join([f"{msg['role']}: {msg['content']}" for msg in history])
+
     context = ""
     if df is not None and months is not None:
         context = generate_spreadsheet_summary(df, months)
         # print(context)
     
-    prompt = (
-    "You are a helpful financial assistant.\n"
-    "The user has provided a monthly profit and loss spreadsheet showing spending in various categories.\n"
-    "Use the spreadsheet data to directly answer user questions like:\n"
-    "- Which categories they spent the most or least on\n"
-    "- Where they can cut costs\n"
-    "- Trends or changes in spending\n"
-    "- Budget or category comparisons\n\n"
-    f"Spreadsheet:\n{context}\n\n"
-    f"User Query:\n{user_input}\n\n"
-    "Only use the spreadsheet values for your answer. Be specific, helpful, and brief.\n"
-    "Assistant:"
-    "Do not add summaries or totals unless the user specifically requests them."
-)
+    prompt = f"""
+You are a helpful and context-aware financial assistant.
+Analyze the user's new question based on the spreadsheet data and the conversation history provided below.
+
+--- Spreadsheet Data ---
+{context}
+--- End of Data ---
+
+--- Conversation History ---
+{formatted_history}
+--- End of History ---
+
+Based on the data and history, answer questions about:
+- Which categories they spent the most or least on
+- Where they can cut costs
+- Trends or changes in spending
+- Budget or category comparisons
+
+Only use the spreadsheet values for your answer. Be specific and helpful.
+
+User: {user_input}
+Assistant:
+"""
     # print("=== PROMPT SENT TO LLaMA ===")
     # print(prompt)
 
@@ -587,7 +602,7 @@ INTENT_PATTERNS = [
     # ... you can continue to add more intents from your elif blocks here
 ]
 
-def hybrid_chatbot_logic(user_input, df, months, category_map):
+def hybrid_chatbot_logic(user_input, df, months, category_map, history=None, use_llm=True):
     """
     Identifies potential intents and uses a strict similarity score to decide
     whether to use a fast, hardcoded function or fall back to the LLM.
@@ -611,7 +626,7 @@ def hybrid_chatbot_logic(user_input, df, months, category_map):
 
     if not potential_tasks:
         # If no keywords match at all, go straight to the LLM
-        return call_llama3(user_input, df=df, months=months)
+        return call_llama3(user_input, df=df, months=months, history=history)
 
     # 2. Check if the question is simple enough for a hardcoded function
     # We will only proceed if there is ONE clear and simple intent.
@@ -677,7 +692,7 @@ Classification:
 # This is the primary function your app.py will call.
 # ==============================================================================
 
-def generative_bot(user_input, company_id, db_schema=None, use_llm=True):
+def generative_bot(user_input, company_id, history=None, db_schema=None, use_llm=True):
 #     """
 #     Orchestrates the two-step LLM chain:
 #     1. Generate a SQL query to get data.
@@ -999,7 +1014,7 @@ def generative_bot(user_input, company_id, db_schema=None, use_llm=True):
         return f"No valid spreadsheets found for company {company_id}."
 
     # Final call is now safe because df, months, and category_map are always defined
-    return hybrid_chatbot_logic(user_input, df, months, category_map)
+    return hybrid_chatbot_logic(user_input, df, months, category_map,history=history, use_llm=use_llm)
 
 
     # # 10B. Clarification handling (e.g., "yes, I meant X")
